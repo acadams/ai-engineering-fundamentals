@@ -90,7 +90,7 @@ A couple of patterns worth noting:
 - **Name the bug.** "If the id is wrong or missing, the arrow floats free in space, which is always a bug" is a better description than "Id of the target shape" because it tells the model what the failure looks like, not just what the field is.
 - **Reference other fields by name.** "Pair with startBinding" on `endBinding` reinforces that they go together. The model picks up these cross references.
 
-These are small edits to a file that already existed. They cost nothing at runtime. They move the BoundLabels and BoundArrows scorers more than any system prompt change does, because the model loads tool schemas with high priority.
+These are small edits to a file that already existed. They cost nothing at runtime and they shape model behavior more than a system prompt change does, because the model loads tool schemas with high priority. We will see exactly how much they shift the visual output in lesson 8 when we measure it.
 
 ## 2. Client side CRUD tools
 
@@ -552,28 +552,22 @@ for (const step of result.steps) {
 return { text: result.text, elements: sim, toolCalls, steps: result.steps };
 ```
 
-### New scorers: ToolChoice, BoundArrows, Connectivity, BoundLabels
+### A new scorer: ToolChoice
 
-The current scorers (Schema, Structure, LabelKeywords, Preservation) all pass even when the diagram is visually broken. We've talked about why throughout this lesson: arrows that don't bind, boxes with no labels, shapes that don't connect. None of the existing scorers can see those failures.
+Lesson 7 changed the tool surface (split the coarse generate/modify pair into focused CRUD tools, moved everything client side, added searchWeb). The existing scorers (Schema, Structure, LabelKeywords) all measure the *output* of a tool call. None of them measures whether the agent picked the right tool in the first place. That is the new failure mode this lesson opens up.
 
-Lesson 7 ships **four new scorers** alongside the tool and schema work. They're already in `evals/scorers/`. Open each file as we go through them: each one has a long header comment explaining what it measures, what failure mode it catches, and why it lives in this lesson.
+Concretely: a "make the login box red" prompt requires the agent to call `queryCanvas` first (to find the login box's id), then `updateElements` to recolor it. If the agent skips `queryCanvas` and just calls `addElements` to draw a new red box, the output looks plausible to every existing scorer but the agent did the wrong thing. We need a scorer that reads `output.toolCalls` and checks the *order and choice* of tool calls against the test case category.
 
 The Preservation scorer gets retired. It was tied to the old `modifyDiagram` tool surface and once `extractElements` simulates the canvas headlessly it stopped meaning much. ToolChoice replaces it.
 
 | Scorer | File | What it catches |
 |---|---|---|
 | **ToolChoice** | `evals/scorers/toolChoice.ts` | Did the agent reach for the right tool given the test case category? Modify cases must call `queryCanvas` before any mutation; create cases must call `addElements`. |
-| **BoundArrows** | `evals/scorers/boundArrows.ts` | For every arrow, are both `startBinding` and `endBinding` set to ids that exist in the output? Catches floating arrows. |
-| **Connectivity** | `evals/scorers/connectivity.ts` | For prompts that imply connected structure ("flow", "sequence", "between"), are all shapes reachable through the arrow graph? Catches orphan shapes. |
-| **BoundLabels** | `evals/scorers/boundLabels.ts` | For every container shape, is there a text element with `containerId` pointing back at it? Catches the "boxes with no labels" failure that the schema work in section 1 was designed to fix. |
 
-Wire all four into `evals/diagram.eval.ts` (drop `preservationScorer`):
+Wire it into `evals/diagram.eval.ts` (drop `preservationScorer`):
 
 ```ts
 import { toolChoiceScorer } from "./scorers/toolChoice";
-import { boundArrowsScorer } from "./scorers/boundArrows";
-import { connectivityScorer } from "./scorers/connectivity";
-import { boundLabelsScorer } from "./scorers/boundLabels";
 
 // ...
 
@@ -582,13 +576,10 @@ scores: [
   structureScorer,
   toolChoiceScorer,
   labelKeywordScorer,
-  boundArrowsScorer,
-  connectivityScorer,
-  boundLabelsScorer,
 ],
 ```
 
-ToolChoice also needs `output.toolCalls` to do its job, so `runAgent` exposes a flat list of tool names called across the run, and `AgentOutput` gains a `toolCalls: string[]` field. The eval task passes it through.
+ToolChoice needs `output.toolCalls` to do its job, so `runAgent` exposes a flat list of tool names called across the run, and `AgentOutput` gains a `toolCalls: string[]` field. The eval task passes it through.
 
 ```ts
 // in runAgent (src/agent-core.ts), after generateText returns:
@@ -599,9 +590,4 @@ for (const step of result.steps) {
 return { text: result.text, elements: sim, toolCalls, steps: result.steps };
 ```
 
-Run the eval. After this lesson:
-
-- **BoundLabels** should jump from near zero to most of the way to 1. The schema field plus the description that tells the model when to use it is the most direct cause/effect in the lesson.
-- **BoundArrows** should also jump. Same reason: the schema description names the failure mode in caps.
-- **Connectivity** should follow BoundArrows up, with some gap because the model still misses cases that need 4+ arrows.
-- **ToolChoice** is a brand new metric. It starts at whatever it starts at; subsequent lessons will move it.
+Run the eval. **ToolChoice** is a brand new metric and starts at whatever the agent's current tool choosing habits produce. The other scorers should hold roughly steady from the lesson 6 baseline. The visual quality of diagrams (labels rendering inside boxes, arrows actually connecting shapes) is something we will measure in lesson 8 with a separate set of scorers; lesson 7 stays focused on tool design and tool selection.

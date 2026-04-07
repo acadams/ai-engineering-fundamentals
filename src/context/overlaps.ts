@@ -13,9 +13,19 @@
 //   1. Arrow and line elements. Their bounding boxes legitimately cross
 //      shapes when the arrow routes between them. Penalizing that would
 //      flag every connecting arrow as a bug.
-//   2. Bound text labels (text element with `containerId` set). The label
-//      is supposed to sit inside its container; that's not an overlap.
+//   2. Container labels (text element whose containerId points to a
+//      rectangle, ellipse, or diamond). The label is supposed to sit
+//      inside its container; that's not an overlap.
 //   3. Symmetric self pair: an element does not overlap itself.
+//
+// IMPORTANT non carve out:
+//   Arrow labels (text element whose containerId points to an arrow or
+//   line) ARE checked for overlaps. They sit along the arrow path, not
+//   inside anything visually, and they routinely collide with shapes
+//   and with other arrow labels in tight layouts. Excluding them — as
+//   an earlier version of this scorer did — produced a structural
+//   false positive where the eval said 100% but the live canvas was
+//   visually broken. The lesson 8 notes call this out as iteration 8.
 //
 // Epsilon: 4 pixels of allowed overlap. Two flush adjacent boxes that
 // share a one pixel edge should not be penalized. This also lets the
@@ -59,6 +69,40 @@ function intersects(
   );
 }
 
+// Build a lookup of element id -> type so we can decide whether a bound
+// text label is a "container label" (exclude — sits inside its parent)
+// or an "arrow label" (include — sits along the arrow path and can
+// collide with shapes and other labels).
+function buildTypeIndex(els: ElementLike[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const el of els) {
+    if (typeof el.id === "string" && typeof el.type === "string") {
+      out.set(el.id, el.type);
+    }
+  }
+  return out;
+}
+
+// True if `el` is a text element whose container is a shape (rectangle,
+// ellipse, diamond). These are intentionally inside the shape.
+function isContainerLabel(el: ElementLike, typeById: Map<string, string>): boolean {
+  if (el.type !== "text") return false;
+  if (typeof el.containerId !== "string" || el.containerId.length === 0) return false;
+  const parentType = typeById.get(el.containerId);
+  return parentType === "rectangle" || parentType === "ellipse" || parentType === "diamond";
+}
+
+// True if the element should be considered for overlap checks. Excludes
+// arrows/lines (paths legitimately cross shapes), container labels
+// (intentionally inside their parent), and elements without a position.
+function isEligible(el: ElementLike, typeById: Map<string, string>): boolean {
+  const type = typeof el.type === "string" ? el.type : null;
+  if (!type || type === "arrow" || type === "line") return false;
+  if (isContainerLabel(el, typeById)) return false;
+  if (typeof el.id !== "string") return false;
+  return box(el) !== null;
+}
+
 // Return all pairs of element ids whose bounding boxes overlap. The pair
 // order is stable (alphabetically sorted) so identical scenes always
 // produce identical overlap lists, which makes the eval reproducible.
@@ -66,23 +110,12 @@ export function findOverlaps(elements: unknown[]): [string, string][] {
   if (!Array.isArray(elements) || elements.length < 2) return [];
 
   const els = elements as ElementLike[];
+  const typeById = buildTypeIndex(els);
 
-  // Filter to elements eligible for overlap checks: not arrows, not lines,
-  // not text bound to a container. Only consider elements that have an id
-  // and a valid bounding box.
   const eligible: { id: string; b: { x: number; y: number; w: number; h: number } }[] = [];
   for (const el of els) {
-    const type = typeof el.type === "string" ? el.type : null;
-    if (!type || type === "arrow" || type === "line") continue;
-    // Bound text labels live inside their container by design.
-    if (type === "text" && typeof el.containerId === "string" && el.containerId.length > 0) {
-      continue;
-    }
-    const id = typeof el.id === "string" ? el.id : null;
-    if (!id) continue;
-    const b = box(el);
-    if (!b) continue;
-    eligible.push({ id, b });
+    if (!isEligible(el, typeById)) continue;
+    eligible.push({ id: el.id as string, b: box(el)! });
   }
 
   const pairs: [string, string][] = [];
@@ -104,23 +137,10 @@ export function findOverlaps(elements: unknown[]): [string, string][] {
 export function countOverlapEligiblePairs(elements: unknown[]): number {
   if (!Array.isArray(elements)) return 0;
   const els = elements as ElementLike[];
+  const typeById = buildTypeIndex(els);
   let n = 0;
   for (const el of els) {
-    const type = typeof el.type === "string" ? el.type : null;
-    if (!type || type === "arrow" || type === "line") continue;
-    if (type === "text" && typeof el.containerId === "string" && el.containerId.length > 0) {
-      continue;
-    }
-    if (typeof el.id !== "string") continue;
-    if (
-      typeof el.x !== "number" ||
-      typeof el.y !== "number" ||
-      typeof el.width !== "number" ||
-      typeof el.height !== "number"
-    ) {
-      continue;
-    }
-    n += 1;
+    if (isEligible(el, typeById)) n += 1;
   }
   return (n * (n - 1)) / 2;
 }

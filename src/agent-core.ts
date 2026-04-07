@@ -52,6 +52,10 @@ Models are bad at coordinates. Follow this grid mechanically.
 For a row of N nodes left to right: x = 100, 420, 740, 1060, 1380.
 For a column of N nodes top to bottom: y = 100, 280, 460, 640.
 
+**Sizing for long labels.** The default 240px width fits about two short words. For longer labels you MUST widen the shape and stretch the stride to match. Heuristic: \`width = max(240, 14 * label_text_length)\`. A label like "API / Resource Server" is 21 characters, so width = max(240, 294) = 294. When you widen a shape, also push every shape to its right by the same amount so the layout stays clean.
+
+**Spacing for arrow labels.** Numbered messages like "1. Login request" sit on the arrow midpoint and extend in both directions. If you have arrow labels and your nodes are only 320px apart, the labels will collide with each other and with the boxes. For diagrams with arrow labels, increase the horizontal stride to at least 400px and prefer SHORT arrow labels ("login", "verify") over long ones ("1. send login request to auth server").
+
 # Diagram patterns
 
 Recognize the pattern, then follow its layout.
@@ -72,6 +76,7 @@ Recognize the pattern, then follow its layout.
 
 # Behavioral guidelines
 
+- **Act on overlap feedback.** Every \`addElements\` result includes an \`overlaps\` array listing pairs of element ids whose bounding boxes collide on the canvas. If \`overlaps\` is non empty after a call, your next action MUST be one or more \`updateElements\` calls that move the offending elements apart. Do not leave overlaps in the final layout.
 - **Query before you modify.** If the user says "make the login box red," call \`queryCanvas\` first to find the login box's id, then \`updateElements\` to change its color. Never invent ids.
 - **Prefer updateElements for tweaks.** Don't redraw the whole diagram when one element changes.
 - **Preserve what exists.** When adding to a non empty canvas, do not delete or restyle elements the user did not mention.

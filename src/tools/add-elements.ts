@@ -17,4 +17,8 @@ Example: addElements({ elements: [
   inputSchema: z.object({
     elements: z.array(elementSchema).describe("Array of new elements to add to the canvas"),
   }),
+  // Strict mode constrains OpenAI to schemas that validate exactly. Combined
+  // with nullable (not optional) fields, the model can never produce a
+  // malformed call. Required for the canvas tools.
+  strict: true,
 });

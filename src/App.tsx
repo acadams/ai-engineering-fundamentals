@@ -48,17 +48,23 @@ export default function App() {
   const agent = useAgent({ agent: "design-agent", name: sessionId });
 
   // All four canvas tools are client side. The worker streams the call here,
-  // we apply it to the live Excalidraw scene, and return a result the agent
-  // sees on its next step. Returning the value from onToolCall lets the AI
-  // SDK auto submit it as the tool result.
+  // we apply it to the live Excalidraw scene, and submit the result via
+  // addToolOutput so the agent loop resumes.
   const { messages, sendMessage, status } = useAgentChat({
     agent,
-    onToolCall: async ({ toolCall }) => {
+    onToolCall: async ({ toolCall, addToolOutput }) => {
       const api = excalidrawAPIRef.current;
-      if (!api) return { error: "canvas not ready" };
+      if (!api) {
+        addToolOutput({ toolCallId: toolCall.toolCallId, output: { error: "canvas not ready" } });
+        return;
+      }
 
       if (toolCall.toolName === "queryCanvas") {
-        return { summary: serializeCanvasState(api.getSceneElements() as unknown[]) };
+        addToolOutput({
+          toolCallId: toolCall.toolCallId,
+          output: { summary: serializeCanvasState(api.getSceneElements() as unknown[]) },
+        });
+        return;
       }
 
       if (toolCall.toolName === "addElements") {
@@ -72,7 +78,8 @@ export default function App() {
         const next = [...api.getSceneElements(), ...newOnes];
         api.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
         api.scrollToContent(next, { fitToContent: true });
-        return { added: newOnes.length };
+        addToolOutput({ toolCallId: toolCall.toolCallId, output: { added: newOnes.length } });
+        return;
       }
 
       if (toolCall.toolName === "updateElements") {
@@ -87,7 +94,8 @@ export default function App() {
             : el;
         });
         api.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
-        return { updated: byId.size };
+        addToolOutput({ toolCallId: toolCall.toolCallId, output: { updated: byId.size } });
+        return;
       }
 
       if (toolCall.toolName === "removeElements") {
@@ -95,10 +103,9 @@ export default function App() {
         const remove = new Set(ids);
         const next = api.getSceneElements().filter((el) => !remove.has(el.id));
         api.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
-        return { removed: remove.size };
+        addToolOutput({ toolCallId: toolCall.toolCallId, output: { removed: remove.size } });
+        return;
       }
-
-      return { error: `unknown tool: ${toolCall.toolName}` };
     },
   });
 

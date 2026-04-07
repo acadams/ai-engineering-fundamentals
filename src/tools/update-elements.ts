@@ -35,4 +35,5 @@ Example: updateElements({ updates: [
       })
     ),
   }),
+  strict: true,
 });

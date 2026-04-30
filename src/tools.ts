@@ -4,8 +4,8 @@
 // queryCanvas is a CLIENT side tool — its definition has no execute function
 // and is fulfilled by App.tsx via useAgentChat's onToolCall handler.
 //
-// searchWeb and searchKnowledge both need request-scoped env (Tavily key,
-// Upstash credentials), so they're built per-request via factory functions
+// searchWeb and searchKnowledge both need request scoped env (Tavily key,
+// Upstash credentials), so they're built per request via factory functions
 // instead of being static exports.
 
 import { addElements } from "./tools/add-elements";
@@ -28,6 +28,9 @@ export function buildTools(env: ToolEnv) {
     updateElements,
     queryCanvas,
     searchWeb: makeSearchWeb(env.TAVILY_API_KEY),
-    searchKnowledge: makeSearchKnowledge(env),
+    searchKnowledge: makeSearchKnowledge({
+      UPSTASH_VECTOR_REST_URL: env.UPSTASH_VECTOR_REST_URL,
+      UPSTASH_VECTOR_REST_TOKEN: env.UPSTASH_VECTOR_REST_TOKEN,
+    }),
   };
 }

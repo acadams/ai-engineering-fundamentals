@@ -17,15 +17,19 @@ import { runAgent } from "../src/agent-core";
 import { buildMessages, type GoldenTestCase } from "./buildMessages";
 import { schemaScorer, type AgentOutput } from "./scorers/schema";
 import { structureScorer } from "./scorers/structure";
-import { preservationScorer } from "./scorers/preservation";
+import { toolChoiceScorer } from "./scorers/toolChoice";
 import { labelKeywordScorer } from "./scorers/labelKeyword";
+// boundArrowsScorer, boundLabelsScorer, connectivityScorer ship in
+// evals/scorers/ but are deliberately not wired here. They measure visual
+// artifact quality, which is lesson 8's subject. Lesson 8 starts by wiring
+// them into this file.
 
 config({ path: ".dev.vars" });
 
 const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const testCases: GoldenTestCase[] = JSON.parse(
-  readFileSync(join("evals", "datasets", "golden.json"), "utf-8")
+  readFileSync(join("evals", "datasets", "golden_2.json"), "utf-8")
 );
 
 Eval<GoldenTestCase, AgentOutput, GoldenTestCase>("Diagram Agent", {
@@ -51,8 +55,13 @@ Eval<GoldenTestCase, AgentOutput, GoldenTestCase>("Diagram Agent", {
       seedCanvas: testCase.seed?.elements ?? [],
       env: { TAVILY_API_KEY: process.env.TAVILY_API_KEY },
     });
-    return { text: result.text, elements: result.elements };
+    return { text: result.text, elements: result.elements, toolCalls: result.toolCalls };
   },
 
-  scores: [schemaScorer, structureScorer, preservationScorer, labelKeywordScorer],
+  scores: [
+    schemaScorer,
+    structureScorer,
+    toolChoiceScorer,
+    labelKeywordScorer,
+  ],
 });
